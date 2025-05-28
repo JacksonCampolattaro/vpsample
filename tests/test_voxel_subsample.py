@@ -4,7 +4,7 @@ import time
 import pytest
 import torch
 
-from torch_voxel_subsample import voxel_subsample
+from vpsample import voxel_subsample
 
 
 def test_subsampling_fully_occupied():

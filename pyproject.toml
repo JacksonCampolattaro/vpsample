@@ -1,5 +1,5 @@
 [project]
-name = "torch-voxel-subsample"
+name = "vpsample"
 version = "0.1.0"
 description = "Fast voxel subsampling of point-clouds."
 readme = "README.md"
