@@ -1,6 +1,7 @@
 #pragma once
 #include <torch/extension.h>
 #include <random>
+#include <limits>
 
 namespace deterministic_voxel_subsample {
     struct Cell {
@@ -23,7 +24,10 @@ namespace deterministic_voxel_subsample {
 
         SlowHash(Cell** table, Cell* storage, const uint64_t size, const uint32_t pick)
             : table(table), storage(storage), size(size), multiplier(~0ull / size + 1), count(0), pick(pick) {
-            rand.seed(*(uint32_t*)torch::randint(0, std::numeric_limits<uint32_t>::max(), 1, torch::kInt64).data_ptr());
+
+          rand.seed(torch::randint(0, std::numeric_limits<int32_t>::max(), 1,
+                                   torch::kU64)
+                        .item<int64_t>());
         }
 
         void insert(const uint64_t key, const uint32_t idx) {

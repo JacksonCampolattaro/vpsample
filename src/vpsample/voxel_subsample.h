@@ -1,6 +1,7 @@
 #pragma once
 #include <torch/extension.h>
 #include <random>
+#include <limits>
 
 namespace random_voxel_subsample {
     struct Cell {
@@ -56,9 +57,11 @@ namespace random_voxel_subsample {
 
         FastHash(SlowHash& slow_hash)
             : slow_hash(&slow_hash) {
-            rand.seed(*(uint32_t*)torch::randint(0, std::numeric_limits<uint32_t>::max(), 1, torch::kInt64).data_ptr());
-            for (uint64_t i = 0; i < hash_size; ++i)
-                key[i] = ~0ull;
+          rand.seed(torch::randint(0, std::numeric_limits<int32_t>::max(), 1,
+                                   torch::kU64)
+                        .item<int64_t>());
+          for (uint64_t i = 0; i < hash_size; ++i)
+            key[i] = ~0ull;
         }
 
         void insert(const uint64_t key_, const uint32_t idx_) {
