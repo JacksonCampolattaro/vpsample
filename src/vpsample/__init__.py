@@ -35,8 +35,7 @@ def voxel_subsample(pos: Tensor, voxel_size: float, hash_size: float = 1.0, pick
 
     size = next_prime(pos.shape[0] * hash_size)  # todo: check this isn't too slow
     table = torch.zeros((size,), dtype=torch.int64)
-    storage = torch.empty((size * 3,), dtype=torch.int64)
     if pick is None:
-        return imp.voxel_subsample(pos, voxel_size, table, storage)
+        return imp.voxel_subsample(pos, voxel_size, table)
     else:
-        return imp.voxel_subsample_deterministic(pos, voxel_size, table, storage, pick)
+        return imp.voxel_subsample_deterministic(pos, voxel_size, table, pick)

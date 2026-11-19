@@ -38,6 +38,27 @@ def test_subsampling_deterministic():
     assert (samples_a == samples_b).all()
 
 
+@pytest.mark.parametrize('pick', [None, 0])
+def test_subsampling_every_point_in_own_cell(pick):
+    # Regression: cell storage was sized for the random sampler's 24-byte Cell, but the
+    # deterministic sampler's Cell is 32 bytes, so dense clouds corrupted the heap.
+    torch.manual_seed(0)
+    pos = torch.rand(200_000, 3)
+    samples = voxel_subsample(pos, 1 / 1_000_000, pick=pick)
+
+    assert len(samples) == len(pos)
+
+
+@pytest.mark.parametrize('pick', [None, 0])
+def test_subsampling_oversubscribed_hash_table(pick):
+    # Fewer buckets than points: collisions must chain, not overflow the cell storage.
+    torch.manual_seed(0)
+    pos = torch.rand(100_000, 3)
+    samples = voxel_subsample(pos, 1 / 1_000_000, hash_size=0.25, pick=pick)
+
+    assert 0 < len(samples) <= len(pos)
+
+
 @pytest.mark.parametrize('n', [100, 1_000, 10_000])
 @pytest.mark.parametrize('voxel_size', [1 / 2, 1 / 8, 1 / 32])
 def test_subsampling_correctness(n: int, voxel_size: float):

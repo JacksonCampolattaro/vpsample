@@ -20,10 +20,12 @@ namespace deterministic_voxel_subsample {
         uint64_t multiplier;
         uint64_t count;
         uint32_t pick;
+        uint64_t capacity;
         std::mt19937 rand;
 
-        SlowHash(Cell** table, Cell* storage, const uint64_t size, const uint32_t pick)
-            : table(table), storage(storage), size(size), multiplier(~0ull / size + 1), count(0), pick(pick) {
+        SlowHash(Cell** table, Cell* storage, const uint64_t size, const uint64_t capacity, const uint32_t pick)
+            : table(table), storage(storage), size(size), multiplier(~0ull / size + 1), count(0),
+              pick(pick), capacity(capacity) {
 
           rand.seed(torch::randint(0, std::numeric_limits<int32_t>::max(), 1,
                                    torch::kU64)
@@ -35,6 +37,7 @@ namespace deterministic_voxel_subsample {
             Cell** cell = &table[slow_idx];
             for (; *cell && (*cell)->key != key; cell = &(*cell)->next);
             if (*cell == nullptr) {
+                TORCH_CHECK(count < capacity, "voxel subsample storage exhausted");
                 *cell = storage + count;
                 ++count;
                 (*cell)->next = nullptr;
@@ -69,10 +72,15 @@ namespace deterministic_voxel_subsample {
     };
 
     torch::Tensor voxel_subsample(const torch::Tensor& pos, const float voxel_size, torch::Tensor& hash_table,
-                                                torch::Tensor& hash_storage, uint32_t pick) {
+                                                uint32_t pick) {
+        TORCH_CHECK(pos.is_cpu(), "voxel_subsample_deterministic expects a CPU tensor");
         const double grid_size = 1 / (double)voxel_size;
         const uint64_t slow_hash_size = hash_table.size(0);
-        SlowHash slow_hash((Cell**)hash_table.data_ptr(), (Cell*)hash_storage.data_ptr(), slow_hash_size, pick);
+        // Each cell holds at least one point, so the point count bounds the number of cells.
+        auto hash_storage = torch::empty(
+            {(pos.size(0) * static_cast<int64_t>(sizeof(Cell)) + 7) / 8}, torch::kInt64);
+        SlowHash slow_hash((Cell**)hash_table.data_ptr(), (Cell*)hash_storage.data_ptr(), slow_hash_size,
+                           pos.size(0), pick);
         const uint64_t pc_size = pos.size(0);
         const float* pc = (const float*)pos.data_ptr();
         const uint64_t x_step = ((1ull << 42) / slow_hash_size * slow_hash_size + uint64_t(slow_hash_size * 0.292135));

@@ -17,9 +17,11 @@ namespace random_voxel_subsample {
         uint64_t size;
         uint64_t multiplier;
         uint64_t count;
+        uint64_t capacity;
 
-        SlowHash(Cell** table, Cell* storage, const uint64_t size)
-            : table(table), storage(storage), size(size), multiplier(~0ull / size + 1), count(0) {}
+        SlowHash(Cell** table, Cell* storage, const uint64_t size, const uint64_t capacity)
+            : table(table), storage(storage), size(size), multiplier(~0ull / size + 1), count(0),
+              capacity(capacity) {}
 
         void insert(const uint64_t key, const uint32_t idx, const uint32_t weight) {
             const uint64_t slow_idx = __uint128_t(key * multiplier) * size >> 64;
@@ -28,6 +30,7 @@ namespace random_voxel_subsample {
             if (*cell && (*cell)->weight >= weight)
                 return;
             if (*cell == nullptr) {
+                TORCH_CHECK(count < capacity, "voxel subsample storage exhausted");
                 *cell = storage + count;
                 ++count;
                 (*cell)->next = nullptr;
@@ -38,10 +41,10 @@ namespace random_voxel_subsample {
         }
 
         torch::Tensor finalize() {
-            auto indices = torch::empty(count - 1, torch::kInt64);
+            auto indices = torch::empty(count, torch::kInt64);
             uint64_t* pindices = (uint64_t*)indices.data_ptr();
-            for (uint64_t i = 1; i < count; ++i)
-                pindices[i - 1] = storage[i].idx;
+            for (uint64_t i = 0; i < count; ++i)
+                pindices[i] = storage[i].idx;
             return indices;
         }
     };
@@ -75,7 +78,8 @@ namespace random_voxel_subsample {
                 running_weight[fast_idx] = new_weight;
             }
             else {
-                slow_hash->insert(key[fast_idx], indices[fast_idx], weight[fast_idx]);
+                if (key[fast_idx] != ~0ull)
+                    slow_hash->insert(key[fast_idx], indices[fast_idx], weight[fast_idx]);
                 key[fast_idx] = key_;
                 indices[fast_idx] = idx_;
                 weight[fast_idx] = running_weight[fast_idx] = rand();
@@ -84,20 +88,28 @@ namespace random_voxel_subsample {
 
         void finalize() {
             for (uint64_t i = 0; i < hash_size; ++i)
-                slow_hash->insert(key[i], indices[i], weight[i]);
+                if (key[i] != ~0ull)
+                    slow_hash->insert(key[i], indices[i], weight[i]);
         }
     };
 
     torch::Tensor voxel_subsample(
         const torch::Tensor& pos,
         const float voxel_size,
-        torch::Tensor& hash_table,
-        torch::Tensor& hash_storage
+        torch::Tensor& hash_table
     ) {
+        TORCH_CHECK(pos.is_cpu(), "voxel_subsample expects a CPU tensor");
         const double grid_size = 1 / (double)voxel_size;
         const uint64_t slow_hash_size = hash_table.size(0);
         constexpr uint64_t fast_hash_size = 2048;
-        SlowHash slow_hash((Cell**)hash_table.data_ptr(), (Cell*)hash_storage.data_ptr(), slow_hash_size);
+        // Each cell holds at least one point, so the point count bounds the number of cells.
+        auto hash_storage = torch::empty(
+            {(pos.size(0) * static_cast<int64_t>(sizeof(Cell)) + 7) / 8}, torch::kInt64);
+        SlowHash slow_hash(
+            (Cell**)hash_table.data_ptr(),
+            (Cell*)hash_storage.data_ptr(),
+            slow_hash_size,
+            pos.size(0));
         FastHash<fast_hash_size> fast_hash(slow_hash);
         const uint64_t pc_size = pos.size(0);
         const float* pc = (const float*)pos.data_ptr();
